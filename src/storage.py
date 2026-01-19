@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -13,9 +14,57 @@ from .tree import BST
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_FILE = BASE_DIR / "records.json"
+CSV_FILE = BASE_DIR / "records.csv"
+CSV_FIELDS = ("patient_id", "name", "age", "gender", "phone", "medical_notes")
 
 
-def load_state(path: Path | str = DATA_FILE):
+def _row_to_patient(row):
+    if not row:
+        return None
+    patient_id = (row.get("patient_id") or "").strip()
+    name = (row.get("name") or "").strip()
+    age_text = (row.get("age") or "").strip()
+    gender = (row.get("gender") or "").strip().upper()
+    phone = (row.get("phone") or "").strip()
+    notes = (row.get("medical_notes") or "").strip()
+
+    if not patient_id or not name or not age_text or not gender or not phone:
+        return None
+
+    try:
+        age = int(age_text)
+    except ValueError:
+        return None
+
+    if gender not in ("M", "F", "O"):
+        return None
+
+    try:
+        return Patient(patient_id, name, age, gender, phone, notes)
+    except Exception:
+        return None
+
+
+def _load_csv_patients(path: Path | str):
+    path = Path(path)
+    if not path.exists():
+        return []
+
+    patients = []
+    try:
+        with path.open("r", newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                patient = _row_to_patient(row)
+                if patient is not None:
+                    patients.append(patient)
+    except Exception:
+        return []
+
+    return patients
+
+
+def load_state(path: Path | str = DATA_FILE, csv_path: Path | str = CSV_FILE):
     """Load persisted records and rebuild in-memory data structures."""
     registry = HashTable()
     triage = PriorityQueue()
@@ -23,15 +72,13 @@ def load_state(path: Path | str = DATA_FILE):
     appt_seq = 0
 
     path = Path(path)
-    if not path.exists():
-        return registry, triage, schedule, appt_seq
-
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-    except Exception:
-        # Corrupted file -> start fresh.
-        return registry, triage, schedule, appt_seq
+    raw = {}
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except Exception:
+            raw = {}
 
     for pdata in raw.get("patients", []):
         try:
@@ -64,11 +111,17 @@ def load_state(path: Path | str = DATA_FILE):
     if isinstance(saved_seq, int) and saved_seq >= 0:
         appt_seq = saved_seq
 
-    return registry, triage, schedule, appt_seq
+    imported_from_csv = 0
+    for patient in _load_csv_patients(csv_path):
+        if not registry.contains(patient.patient_id):
+            registry.put(patient.patient_id, patient)
+            imported_from_csv += 1
+
+    return registry, triage, schedule, appt_seq, imported_from_csv
 
 
 def save_state(registry: HashTable, triage: PriorityQueue, schedule: BST, appt_seq: int,
-               path: Path | str = DATA_FILE):
+               path: Path | str = DATA_FILE, csv_path: Path | str = CSV_FILE):
     """Persist patients, queue, and appointments to disk."""
     path = Path(path)
     data = {
@@ -108,3 +161,29 @@ def save_state(registry: HashTable, triage: PriorityQueue, schedule: BST, appt_s
     except Exception:
         # Surface errors is noisy for CLI; best-effort only.
         pass
+
+    _save_csv_patients(registry, csv_path)
+
+
+def _save_csv_patients(registry: HashTable, path: Path | str):
+    path = Path(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rows = sorted(registry.items(), key=lambda pair: pair[0])
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            for _, patient in rows:
+                writer.writerow(
+                    {
+                        "patient_id": patient.patient_id,
+                        "name": patient.name,
+                        "age": patient.age,
+                        "gender": patient.gender,
+                        "phone": patient.phone,
+                        "medical_notes": patient.medical_notes,
+                    }
+                )
+    except Exception:
+        # best effort only
+        return

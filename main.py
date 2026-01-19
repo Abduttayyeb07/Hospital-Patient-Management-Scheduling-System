@@ -57,7 +57,7 @@ def generate_appt_code(counter):
     return code.rjust(5, "0")[-5:]
 
 def main():
-    registry, triage, schedule, appt_seq = load_state()
+    registry, triage, schedule, appt_seq, csv_import_count = load_state()
     if registry is None:
         # fallback if load_state returned None components (defensive)
         registry = HashTable()
@@ -107,6 +107,10 @@ def main():
         return idx
 
     code_index = rebuild_code_index()
+
+    if csv_import_count:
+        print(f"INFO: Imported {csv_import_count} patient(s) from records.csv.")
+        persist()
 
     while True:
         try:

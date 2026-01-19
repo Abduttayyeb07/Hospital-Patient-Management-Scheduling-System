@@ -47,6 +47,12 @@ Menu-driven CLI that manages patient registrations, visit histories, emergency t
 6. **Chronological Reporting** - in-order traversal dumps upcoming appointments with codes (`choice 10`).
 7. **Persistence** - `records.json` is updated after every successful mutation and loaded on startup.
 
+## CSV Mirror
+- `records.csv` mirrors the JSON state so you can edit patients in a spreadsheet and let the CLI pick them up automatically.
+- The CSV exposes these columns: `patient_id`, `name`, `age`, `gender` (M/F/O), `phone`, `medical_notes`. Only rows with valid values are imported.
+- On startup the CLI loads `records.json`, then reads `records.csv`, inserting any patient IDs that are not already registered. When import happens the CLI prints `INFO: Imported X patient(s) from records.csv.` and immediately persists the merged state back to both JSON and CSV.
+- Manual edits should avoid duplicate `patient_id` rows (existing IDs are skipped) and keep `age` as an integer between 0-130; invalid rows are ignored silently.
+
 ## Complexity Summary
 | Operation | Complexity |
 | --- | --- |
